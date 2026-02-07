@@ -55,13 +55,7 @@ MACOS_WELL_KNOWN_CLIENTS: list[CandidateClient] = [
         name="openclaw",
         client_exists_paths=["~/.clawdbot", "~/.openclaw"],
         mcp_config_paths=[],
-        skills_dir_paths=["~/.clawdbot/skills", "~/.openclaw/skills"],
-    ),
-    CandidateClient(
-        name="openclaw",
-        client_exists_paths=["~/.clawdbot", "~/.openclaw"],
-        mcp_config_paths=[],
-        skills_dir_paths=["~/.clawdbot/skills", "~/.openclaw/skills", ".openclaw/skills"],
+        skills_dir_paths=["~/.clawdbot/skills", "~/.openclaw/skills", "~/.openclaw/workspace/skills", ".openclaw/skills"],
     ),
     CandidateClient(
         name="amp",
@@ -134,7 +128,7 @@ LINUX_WELL_KNOWN_CLIENTS: list[CandidateClient] = [
         name="openclaw",
         client_exists_paths=["~/.clawdbot", "~/.openclaw"],
         mcp_config_paths=[],
-        skills_dir_paths=["~/.clawdbot/skills", "~/.openclaw/skills", ".openclaw/skills"],
+        skills_dir_paths=["~/.clawdbot/skills", "~/.openclaw/skills", "~/.openclaw/workspace/skills", ".openclaw/skills"],
     ),
     CandidateClient(
         name="amp",
@@ -214,7 +208,7 @@ WINDOWS_WELL_KNOWN_CLIENTS: list[CandidateClient] = [
         name="openclaw",
         client_exists_paths=["~/.clawdbot", "~/.openclaw"],
         mcp_config_paths=[],
-        skills_dir_paths=["~/.clawdbot/skills", "~/.openclaw/skills", ".openclaw/skills"],
+        skills_dir_paths=["~/.clawdbot/skills", "~/.openclaw/skills", "~/.openclaw/workspace/skills", ".openclaw/skills"],
     ),
     CandidateClient(
         name="amp",
