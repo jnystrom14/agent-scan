@@ -200,8 +200,22 @@ async def analyze_machine(
         headers.update(additional_headers)
     if skip_pushing:
         headers["X-Push"] = "skip"
-    if push_key:
+
+    snyk_token = os.getenv("SNYK_TOKEN")
+    if snyk_token:
+        # CLI mode with SNYK_TOKEN environment variable for authentication
+        analysis_url = analysis_url.replace("/hidden/mcp-scan/analysis-machine", "/hidden/mcp-scan/cli/analysis-machine")
+        headers["Authorization"] = f"token {snyk_token}"
+    elif push_key:
+        # Enterprise MDM mode with push key
         headers["X-Push-Key"] = push_key
+    else:
+        rich.print(
+            "[bold red]Error: You need to set the SNYK_TOKEN environment variable. "
+            "To get a token, go to https://app.snyk.io/account (API Token -> KEY -> click to show).[/bold red]"
+        )
+        raise ValueError("SNYK_TOKEN environment variable not set")
+
     for attempt in range(max_retries):
         try:
             async with aiohttp.ClientSession(
