@@ -213,7 +213,7 @@ async def analyze_machine(
         headers["X-Push-Key"] = push_key
     else:
         rich.print(
-            "[bold red]To use Agent Scan, please provide a SNYK_TOKEN as environment variable."
+            "[bold red]To use Agent Scan, set the SNYK_TOKEN environment variable. "
             "To get a token, go to https://app.snyk.io/account (API Token -> KEY -> click to show).[/bold red]"
         )
         raise ValueError("SNYK_TOKEN environment variable not set")
