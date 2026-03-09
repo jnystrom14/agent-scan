@@ -18,7 +18,7 @@
 </p>
 
 <div align="center">
-  <img src=".github/mcp-scan-cmd-banner.png?raw=true" alt="Agent Scan logo"/>
+  <img width="1304" height="976" alt="agent-scan-pretty" src="https://github.com/user-attachments/assets/49c32115-703c-465f-bb09-1b6bae852253" />
 </div>
 
 <br>
