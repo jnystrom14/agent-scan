@@ -10,6 +10,7 @@ import certifi
 import rich
 
 from agent_scan.models import (
+    ScalarToolLabels,
     ScanError,
     ScanPathResult,
     ScanPathResultsCreate,
@@ -246,35 +247,37 @@ async def analyze_machine(
             error_text = f"API timeout while scanning discovered servers: {e}"
 
         except aiohttp.ClientResponseError as e:
-            if 400 <= e.status < 500:
-                if e.status == 413:  # Request Entity Too Large (large skill payloads or MCP server signatures)
-                    error_text = "Analysis scope too large (e.g. too many or very large MCP servers/skills). Please consider scanning individual MCP servers or skill directories."
-                else:  # Other 400 errors (e.g. invalid JSON, missing required fields, etc.)
-                    error_text = f"The analysis server returned an error for your request: {e.status} - {e.message}"
-                logger.warning(error_text)
-                for scan_path in scan_paths:
-                    if scan_path.servers is not None and scan_path.error is None:
-                        scan_path.error = ScanError(
-                            message=error_text,
-                            exception=e,
-                            traceback=traceback.format_exc(),
-                            is_failure=True,
-                            category="analysis_error",
-                        )
-                        return scan_paths
-            else:  # 500 errors (e.g. server error, service unavailable, etc.)
+            if e.status == 401:
+                error_text = "Unauthorized."
+            elif e.status == 413:
+                error_text = "Analysis scope too large (e.g. too many or very large MCP servers/skills). Please consider scanning individual MCP servers or skill directories."
+            elif e.status == 429:
+                error_text = "Daily usage limit reached for the public version of Agent-Scan. Unlock higher limits and enterprise features by contacting us at https://evo.ai.snyk.io/."
+            elif 400 <= e.status < 500:
+                error_text = f"The analysis server returned an error for your request: {e.status} - {e.message}"
+            else:
                 error_text = f"Could not reach analysis server: {e.status} - {e.message}"
-                logger.warning(error_text)
-                for scan_path in scan_paths:
-                    if scan_path.servers is not None and scan_path.error is None:
-                        scan_path.error = ScanError(
-                            message=error_text,
-                            exception=e,
-                            traceback=traceback.format_exc(),
-                            is_failure=True,
-                            category="analysis_error",
-                        )
-                return scan_paths
+
+            logger.warning(error_text)
+            for scan_path in scan_paths:
+                if scan_path.servers is not None:
+                    for server in scan_path.servers:
+                        if server.error is None:
+                            server.error = ScanError(
+                                message=error_text,
+                                exception=e,
+                                traceback=traceback.format_exc(),
+                                is_failure=True,
+                                category="analysis_error",
+                            )
+                    scan_path.labels = [
+                        [
+                            ScalarToolLabels(is_public_sink=0, destructive=0, untrusted_content=0, private_data=0)
+                            for _ in s.entities
+                        ]
+                        for s in scan_path.servers
+                    ]
+            return scan_paths
 
         except RuntimeError as e:
             logger.warning(f"Network error while uploading (attempt {attempt + 1}/{max_retries}): {e}")
@@ -282,8 +285,6 @@ async def analyze_machine(
 
         except Exception as e:
             logger.error(f"Unexpected error while uploading scan results (attempt {attempt + 1}/{max_retries}): {e}")
-            # For unexpected errors, don't retry
-            rich.print(f"❌ Unexpected error while uploading scan results: {e}")
             raise e
 
         # If not the last attempt, wait before retrying (exponential backoff)
