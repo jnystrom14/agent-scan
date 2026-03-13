@@ -25,7 +25,7 @@ test tests:
 
 ci:
 	$(MAKE) binary
-	AGENT_SCAN_ENVIRONMENT=ci uv run --extra test -m pytest --runner=binary $(PYTEST_PATH_ARGS) $(ARGS)
+	AGENT_SCAN_ENVIRONMENT=ci uv run --extra test -m pytest -vv --runner=binary $(PYTEST_PATH_ARGS) $(ARGS)
 
 pre-commit:
 	uv sync
