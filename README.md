@@ -108,7 +108,6 @@ These options are available for all commands:
 --base-url URL         Base URL for the verification server
 --verbose              Enable detailed logging output
 --print-errors         Show error details and tracebacks
---full-toxic-flows     Show all tools that could take part in toxic flow. By default only the top 3 are shown.
 --json                 Output results in JSON format instead of rich text
 ```
 
