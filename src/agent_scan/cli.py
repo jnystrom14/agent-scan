@@ -32,6 +32,12 @@ logging.getLogger().setLevel(logging.CRITICAL + 1)  # Higher than any standard l
 logging.getLogger().addHandler(logging.NullHandler())
 
 
+class MissingIdentifierError(Exception):
+    """Raised when a control server is missing an identifier."""
+
+    pass
+
+
 def setup_logging(verbose=False, log_to_stderr=False):
     """Configure logging based on the verbose flag."""
     if verbose:
@@ -84,52 +90,48 @@ def str2bool(v: str) -> bool:
     return v.lower() in ("true", "1", "t", "y", "yes")
 
 
-def parse_control_servers(argv):
+def parse_control_servers(argv) -> list[ControlServer]:
     """
     Parse control server arguments from sys.argv.
-    Returns a list of control server configurations, where each config is a dict with:
-    - url: the control server URL
-    - headers: list of additional headers
-    - identifier: the control identifier (or None)
+    Returns a list of ControlServer instances.
+    Raises ValueError if any control server is missing an identifier.
     """
-    control_servers = []
-    current_server = None
+    server_starts = [i for i, arg in enumerate(argv) if arg == "--control-server"]
 
-    i = 0
-    while i < len(argv):
-        arg = argv[i]
+    control_servers: list[ControlServer] = []
+    for idx, start in enumerate(server_starts):
+        end = server_starts[idx + 1] if idx + 1 < len(server_starts) else len(argv)
+        block = argv[start:end]
 
-        if arg == "--control-server":
-            # Save previous server if exists
-            if current_server is not None:
-                control_servers.append(current_server)
+        if len(block) < 2 or block[1].startswith("--"):
+            continue
 
-            # Start new server config
-            if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
-                current_server = {
-                    "url": argv[i + 1],
-                    "headers": [],
-                    "identifier": None,
-                }
-                i += 1  # Skip the URL value
+        url = block[1]
+        headers: list[str] = []
+        identifier: str | None = None
+
+        i = 2
+        while i < len(block):
+            if block[i] == "--control-server-H" and i + 1 < len(block) and not block[i + 1].startswith("--"):
+                headers.append(block[i + 1])
+                i += 2
+            elif block[i] == "--control-identifier" and i + 1 < len(block) and not block[i + 1].startswith("--"):
+                identifier = block[i + 1]
+                i += 2
             else:
-                current_server = None
-
-        elif current_server is not None:
-            if arg == "--control-server-H":
-                if i + 1 < len(argv) and not argv[i + 1].startswith("--"):
-                    current_server["headers"].append(argv[i + 1])
-                    i += 1
-
-            elif arg == "--control-identifier" and i + 1 < len(argv) and not argv[i + 1].startswith("--"):
-                current_server["identifier"] = argv[i + 1]
                 i += 1
 
-        i += 1
+        if identifier is None:
+            rich.print(f"[bold red]Control server {url} is missing a --control-identifier[/bold red]")
+            raise MissingIdentifierError(f"Control server {url} is missing a --control-identifier")
 
-    # Don't forget the last server
-    if current_server is not None:
-        control_servers.append(current_server)
+        control_servers.append(
+            ControlServer(
+                url=url,
+                headers=parse_headers(headers),
+                identifier=identifier,
+            )
+        )
 
     return control_servers
 
@@ -234,17 +236,24 @@ def add_scan_arguments(scan_parser):
     scan_parser.add_argument(
         "--control-server",
         action="append",
-        help="Upload the scan results to the provided control server URL. Can be specified multiple times for multiple control servers.",
+        help=(
+            "Upload scan results to this control server URL. "
+            "Must be paired with a --control-identifier for that same server block. "
+            "Can be specified multiple times."
+        ),
     )
     scan_parser.add_argument(
         "--control-server-H",
         action="append",
-        help="Additional headers for the preceding control server",
+        help="Additional header for the current --control-server block (repeatable)",
     )
     scan_parser.add_argument(
         "--control-identifier",
         action="append",
-        help="Non-anonymous identifier used to identify the user to the preceding control server, e.g. email or serial number",
+        help=(
+            "Required per --control-server block. "
+            "Non-anonymous identifier for that control server (for example: email, hostname, serial number)."
+        ),
     )
 
 
@@ -470,11 +479,11 @@ async def evo(args):
 
     # Update the default scan args
     args.control_servers = [
-        {
-            "url": push_scan_url,
-            "identifier": get_hostname() or None,
-            "headers": [f"x-client-id:{client_id}"],
-        }
+        ControlServer(
+            url=push_scan_url,
+            identifier=get_hostname() or None,
+            headers=parse_headers([f"x-client-id:{client_id}"]),
+        )
     ]
     await run_scan(args, mode="scan")
 
@@ -525,14 +534,7 @@ async def run_scan(args, mode: Literal["scan", "inspect"] = "scan") -> list[Scan
     if mode == "scan":
         skip_ssl_verify: bool = bool(hasattr(args, "skip_ssl_verify") and args.skip_ssl_verify)
 
-        control_servers: list[ControlServer] = [
-            ControlServer(
-                url=server_config["url"],
-                headers=parse_headers(server_config["headers"]),
-                identifier=server_config["identifier"],
-            )
-            for server_config in args.control_servers
-        ]
+        control_servers: list[ControlServer] = args.control_servers if hasattr(args, "control_servers") else []
         analyze_args = AnalyzeArgs(
             analysis_url=args.analysis_url,
             identifier=None,
