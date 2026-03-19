@@ -181,7 +181,15 @@ def get_max_severity(
 
 
 def format_issue(issue: Issue) -> str:
-    issue_str = rf"● \[{issue.code} {get_severity(issue)}]: {issue.message}"
+    issue_str = rf"● \[{issue.code} {get_severity(issue)}]: "
+
+    if issue.code in ["W015", "W016", "W017", "W018"] and issue.extra_data is not None and "reason" in issue.extra_data:
+        issue_str += f"{issue.message} Reason: {issue.extra_data['reason']}"
+    elif issue.code == "W001" and issue.extra_data is not None and "words" in issue.extra_data:
+        words = ",".join([f'"{w}"' for w in issue.extra_data["words"]])
+        issue_str += f"Found the word{'s' if len(issue.extra_data['words']) > 1 else ''} {words} in the tool description. It is a common word used in prompt injection attacks."
+    else:
+        issue_str += f"{issue.message}"
     return (
         SEVERITY_COLOR_MAP[get_severity(issue)] + issue_str + SEVERITY_COLOR_MAP[get_severity(issue)].replace("[", "[/")
     )
