@@ -536,9 +536,7 @@ async def run_scan(args, mode: Literal["scan", "inspect"] = "scan") -> list[Scan
 
         control_servers: list[ControlServer] = args.control_servers if hasattr(args, "control_servers") else []
         # For the analysis backend, pick the first identifier from control_servers
-        identifier: str | None = next(
-            (s.identifier for s in control_servers), None
-        )
+        identifier: str | None = next((s.identifier for s in control_servers), None)
         analyze_args = AnalyzeArgs(
             analysis_url=args.analysis_url,
             identifier=identifier,
