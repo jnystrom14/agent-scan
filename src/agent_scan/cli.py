@@ -535,9 +535,13 @@ async def run_scan(args, mode: Literal["scan", "inspect"] = "scan") -> list[Scan
         skip_ssl_verify: bool = bool(hasattr(args, "skip_ssl_verify") and args.skip_ssl_verify)
 
         control_servers: list[ControlServer] = args.control_servers if hasattr(args, "control_servers") else []
+        # For the analysis backend, pick the first identifier from control_servers
+        identifier: str | None = next(
+            (s.identifier for s in control_servers), None
+        )
         analyze_args = AnalyzeArgs(
             analysis_url=args.analysis_url,
-            identifier=None,
+            identifier=identifier,
             additional_headers=parse_headers(args.verification_H),
             max_retries=3,
             skip_ssl_verify=skip_ssl_verify,
