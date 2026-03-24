@@ -16,7 +16,7 @@ The output is a dictionary where keys are file paths and values are `ScanPathRes
 {
   "/absolute/path/to/skill": {
     "path": "/absolute/path/to/skill",
-    "error": null, 
+    "error": null,
     "servers": [
       {
         "name": "skill-name",
@@ -29,7 +29,7 @@ The output is a dictionary where keys are file paths and values are `ScanPathRes
       {
         "code": "E001",
         "message": "Description of the error",
-        "reference": [0, 1] 
+        "reference": [0, 1]
       }
     ]
   }
@@ -76,8 +76,8 @@ To check if there are any critical errors (`E` codes) or execution failures:
 uvx mcp-scan --skills ./my-skill --json | jq '
   [ .[] ] | map(
     select(
-      .error != null or 
-      (.servers[]? | .error != null) or 
+      .error != null or
+      (.servers[]? | .error != null) or
       (
         (.issues // []) | map(select(.code | startswith("E"))) | length > 0
       )
@@ -93,7 +93,7 @@ To get a list of "real" issues (ignoring internal warnings `W003`-`W006` and whi
 
 ```bash
 uvx mcp-scan --skills ./my-skill --json | jq '
-  .[] | (.issues // [])[] | 
+  .[] | (.issues // [])[] |
   select(
     .code as $c | ["W003", "W004", "W005", "W006", "X002"] | index($c) | not
   )
@@ -109,7 +109,7 @@ uvx mcp-scan --skills ./my-skill --json | jq '
     select(
       # Check for execution errors (path or server level)
       (.error != null) or (.servers[]? | .error != null) or
-      
+
       # Check for policy issues, excluding internal warnings and whitelisted items
       (
         (.issues // []) | map(select(
