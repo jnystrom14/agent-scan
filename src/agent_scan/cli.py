@@ -204,6 +204,12 @@ def add_common_arguments(parser):
         action="store_true",
         help="Scan all users on the machine.",
     )
+    parser.add_argument(
+        "--ci",
+        action="store_true",
+        default=False,
+        help="Exit with a non-zero code when there are analysis findings or runtime failures",
+    )
 
 
 def add_server_arguments(parser):
@@ -277,7 +283,7 @@ def main():
     program_name = get_invoking_name()
     parser = argparse.ArgumentParser(
         prog=program_name,
-        description="Snyk Agent Scan: Security scanner for Model Context Protocol servers and tools",
+        description="Snyk Agent Scan: Security scanner for Model Context Protocol servers, agents, skills and tools",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=(
             "Examples:\n"
@@ -287,7 +293,8 @@ def main():
             f"  {program_name} --skills            # Scan skills beyond mcp servers.\n"
             f"  {program_name} --verbose           # Enable detailed logging output\n"
             f"  {program_name} --print-errors      # Show error details and tracebacks\n"
-            f"  {program_name} --json              # Output results in JSON format\n\n"
+            f"  {program_name} --json              # Output results in JSON format\n"
+            f"  {program_name} --ci                # With --ci, exit with a non-zero code when there are analysis findings or runtime failures\n\n"
             f"  # Multiple control servers with individual options:\n"
             f'  {program_name} --control-server https://server1.com --control-server-H "Auth: token1" \\\n'
             f"    --control-identifier user@example.com \\\n"
@@ -562,6 +569,7 @@ async def print_scan_inspect(mode="scan", args=None):
     print_errors: bool = hasattr(args, "print_errors") and args.print_errors
     full_description: bool = hasattr(args, "print_full_descriptions") and args.print_full_descriptions
     verbose: bool = hasattr(args, "verbose") and args.verbose
+    ci_mode: bool = hasattr(args, "ci") and args.ci
 
     if json_output:
         with suppress_stdout():
@@ -578,6 +586,16 @@ async def print_scan_inspect(mode="scan", args=None):
             full_description=full_description,
             args=args,
         )
+
+    # In CI mode, exit with a non-zero code if any scan path has issues
+    if ci_mode and any(scan_result.issues for scan_result in result):
+        codes = sorted({issue.code for scan_result in result for issue in scan_result.issues if issue.code})
+        codes_part = ", ".join(codes) if codes else "none"
+        rich.print(
+            f"[bold red]CI (--ci): exiting with code 1 (issue codes: {codes_part}).[/bold red]",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
