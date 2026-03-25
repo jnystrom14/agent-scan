@@ -208,7 +208,7 @@ def add_common_arguments(parser):
         "--ci",
         action="store_true",
         default=False,
-        help="Exit with a non-zero code when there are analysis findings",
+        help="Exit with a non-zero code when there are analysis findings or runtime failures",
     )
 
 
@@ -294,7 +294,7 @@ def main():
             f"  {program_name} --verbose           # Enable detailed logging output\n"
             f"  {program_name} --print-errors      # Show error details and tracebacks\n"
             f"  {program_name} --json              # Output results in JSON format\n"
-            f"  {program_name} --ci                # With --ci, exit with a non-zero code when there are analysis findings\n\n"
+            f"  {program_name} --ci                # With --ci, exit with a non-zero code when there are analysis findings or runtime failures\n\n"
             f"  # Multiple control servers with individual options:\n"
             f'  {program_name} --control-server https://server1.com --control-server-H "Auth: token1" \\\n'
             f"    --control-identifier user@example.com \\\n"
