@@ -46,6 +46,121 @@ async def test_upload_payload_excludes_hostname_and_username():
 
 
 @pytest.mark.asyncio
+async def test_upload_sends_username_as_list_without_scanned_usernames():
+    """
+    Test that without scanned_usernames, the upload payload falls back to the current OS username wrapped in a list.
+    """
+    mock_result = ScanPathResult(path="/test/path")
+
+    mock_http_response = AsyncMock(status=200)
+    mock_http_response.json.return_value = []
+    mock_http_response.text.return_value = ""
+
+    mock_post_context_manager = AsyncMock()
+    mock_post_context_manager.__aenter__.return_value = mock_http_response
+
+    with patch("agent_scan.upload.aiohttp.ClientSession.post") as mock_post_method:
+        mock_post_method.return_value = mock_post_context_manager
+
+        await upload([mock_result], "https://control.mcp.scan", "email")
+
+        payload = json.loads(mock_post_method.call_args.kwargs["data"])
+        user_info = payload["scan_user_info"]
+        assert isinstance(user_info["username"], list)
+        assert len(user_info["username"]) == 1
+        assert isinstance(user_info["username"][0], str)
+
+
+@pytest.mark.asyncio
+async def test_upload_sends_username_as_list_with_empty_scanned_usernames():
+    """
+    Test that with an empty scanned_usernames list, the upload payload falls back to the current OS username wrapped in a list.
+    """
+    mock_result = ScanPathResult(path="/test/path")
+
+    mock_http_response = AsyncMock(status=200)
+    mock_http_response.json.return_value = []
+    mock_http_response.text.return_value = ""
+
+    mock_post_context_manager = AsyncMock()
+    mock_post_context_manager.__aenter__.return_value = mock_http_response
+
+    with patch("agent_scan.upload.aiohttp.ClientSession.post") as mock_post_method:
+        mock_post_method.return_value = mock_post_context_manager
+
+        await upload(
+            [mock_result],
+            "https://control.mcp.scan",
+            "email",
+            scanned_usernames=[],
+        )
+
+        payload = json.loads(mock_post_method.call_args.kwargs["data"])
+        user_info = payload["scan_user_info"]
+        assert isinstance(user_info["username"], list)
+        assert len(user_info["username"]) == 1
+        assert isinstance(user_info["username"][0], str)
+
+
+@pytest.mark.asyncio
+async def test_upload_sends_username_list_with_single_user():
+    """
+    Test that when scanned_usernames has a single user, it is still sent as a list.
+    """
+    mock_result = ScanPathResult(path="/test/path")
+
+    mock_http_response = AsyncMock(status=200)
+    mock_http_response.json.return_value = []
+    mock_http_response.text.return_value = ""
+
+    mock_post_context_manager = AsyncMock()
+    mock_post_context_manager.__aenter__.return_value = mock_http_response
+
+    with patch("agent_scan.upload.aiohttp.ClientSession.post") as mock_post_method:
+        mock_post_method.return_value = mock_post_context_manager
+
+        await upload(
+            [mock_result],
+            "https://control.mcp.scan",
+            "email",
+            scanned_usernames=["alice"],
+        )
+
+        payload = json.loads(mock_post_method.call_args.kwargs["data"])
+        user_info = payload["scan_user_info"]
+        assert user_info["username"] == ["alice"]
+
+
+@pytest.mark.asyncio
+async def test_upload_sends_username_list_with_multiple_users():
+    """
+    Test that when scanned_usernames has multiple users, it is sent as a list.
+    """
+    mock_result = ScanPathResult(path="/test/path")
+
+    mock_http_response = AsyncMock(status=200)
+    mock_http_response.json.return_value = []
+    mock_http_response.text.return_value = ""
+
+    mock_post_context_manager = AsyncMock()
+    mock_post_context_manager.__aenter__.return_value = mock_http_response
+
+    with patch("agent_scan.upload.aiohttp.ClientSession.post") as mock_post_method:
+        mock_post_method.return_value = mock_post_context_manager
+
+        await upload(
+            [mock_result],
+            "https://control.mcp.scan",
+            "email",
+            scanned_usernames=["alice", "bob"],
+        )
+
+        payload = json.loads(mock_post_method.call_args.kwargs["data"])
+        user_info = payload["scan_user_info"]
+        assert user_info["username"] == ["alice", "bob"]
+
+
+@pytest.mark.asyncio
 async def test_upload_includes_scan_error_in_payload():
     """
     Ensure that when a ScanPathResult has an error, it is serialized

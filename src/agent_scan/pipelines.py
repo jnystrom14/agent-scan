@@ -1,5 +1,7 @@
+import getpass
 import logging
 import os
+from pathlib import Path
 
 from pydantic import BaseModel
 
@@ -22,7 +24,7 @@ from agent_scan.redact import redact_scan_result
 from agent_scan.upload import upload
 from agent_scan.utils import get_push_key
 from agent_scan.verify_api import analyze_machine
-from agent_scan.well_known_clients import get_well_known_clients
+from agent_scan.well_known_clients import get_readable_home_directories, get_well_known_clients
 
 logger = logging.getLogger(__name__)
 
@@ -51,19 +53,23 @@ class PushArgs(BaseModel):
 
 async def inspect_pipeline(
     inspect_args: InspectArgs,
-) -> list[ScanPathResult]:
+) -> tuple[list[ScanPathResult], list[str]]:
+    # collect discovered usernames
+    home_dirs_with_users = get_readable_home_directories(all_users=inspect_args.all_users)
+    scanned_usernames: list[str] = [username for _path, username in home_dirs_with_users]
+
     # fetch clients to inspect
     if inspect_args.paths:
         clients_to_inspect = [
             cti
             for path in inspect_args.paths
-            for cti in await client_to_inspect_from_path(path, True, inspect_args.all_users, inspect_args.scan_skills)
+            for cti in await client_to_inspect_from_path(path, True, home_dirs_with_users, inspect_args.scan_skills)
         ]
     else:
         clients_to_inspect = [
             cti
             for client in get_well_known_clients()
-            for cti in await get_mcp_config_per_client(client, inspect_args.all_users)
+            for cti in await get_mcp_config_per_client(client, home_dirs_with_users)
         ]
     # inspect
     scan_path_results: list[ScanPathResult] = []
@@ -90,7 +96,7 @@ async def inspect_pipeline(
                 client_to_inspect, inspect_args.timeout, inspect_args.tokens, inspect_args.scan_skills
             )
             scan_path_results.append(inspected_client_to_scan_path_result(inspected_client))
-    return scan_path_results
+    return scan_path_results, scanned_usernames
 
 
 async def inspect_analyze_push_pipeline(
@@ -103,7 +109,7 @@ async def inspect_analyze_push_pipeline(
     Pipeline the scan and analyze the machine.
     """
     # inspect
-    scan_path_results = await inspect_pipeline(inspect_args)
+    scan_path_results, scanned_usernames = await inspect_pipeline(inspect_args)
 
     # redact
     redacted_scan_path_results = [redact_scan_result(rv) for rv in scan_path_results]
@@ -132,14 +138,20 @@ async def inspect_analyze_push_pipeline(
             additional_headers=control_server.headers,
             skip_ssl_verify=push_args.skip_ssl_verify,
             scan_context=scan_context,
+            scanned_usernames=scanned_usernames,
         )
 
     return verified_scan_path_results
 
 
 async def client_to_inspect_from_path(
-    path: str, use_path_as_client_name: bool = False, all_users: bool = False, scan_skills: bool = False
+    path: str,
+    use_path_as_client_name: bool = False,
+    home_dirs: list[tuple[Path, str]] | None = None,
+    scan_skills: bool = False,
 ) -> list[ClientToInspect]:
+    if home_dirs is None:
+        home_dirs = [(Path.home(), getpass.getuser())]
     if is_direct_scan(path):
         server_name, server_config = direct_scan_to_server_config(path)
         return [
@@ -176,7 +188,7 @@ async def client_to_inspect_from_path(
                 skills_dir_paths=[path],
             )
             return await get_mcp_config_per_client(
-                candidate_client, all_users=all_users, create_file_not_found_error=True
+                candidate_client, home_dirs=home_dirs, create_file_not_found_error=True
             )
     elif scan_skills and os.path.basename(os.path.normpath(path)).lower() == "skill.md":
         skill_directory = os.path.basename(os.path.dirname(os.path.normpath(path)))
@@ -199,4 +211,4 @@ async def client_to_inspect_from_path(
             mcp_config_paths=[path],
             skills_dir_paths=[],
         )
-        return await get_mcp_config_per_client(candidate_client, all_users=all_users, create_file_not_found_error=True)
+        return await get_mcp_config_per_client(candidate_client, home_dirs=home_dirs, create_file_not_found_error=True)
