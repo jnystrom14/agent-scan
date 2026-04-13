@@ -16,10 +16,15 @@ import pytest
 from agent_scan.guard import (
     CLAUDE_EVENTS_WITH_MATCHER,
     CLAUDE_HOOK_EVENTS,
+    CLAUDE_MANAGED_SETTINGS_PATH,
+    CLAUDE_SETTINGS_PATH,
     CURSOR_HOOK_EVENTS,
+    CURSOR_HOOKS_PATH,
+    CURSOR_MANAGED_HOOKS_PATH,
     _build_hook_command,
     _build_hook_command_powershell,
     _compact_events,
+    _config_path,
     _detect_claude_install,
     _detect_cursor_install,
     _extract_env_from_cmd,
@@ -1030,6 +1035,129 @@ class TestFilterCursorHooks:
         result = _filter_cursor_hooks(hooks)
         assert len(result["stop"]) == 1
         assert result["stop"][0]["command"] == CURSOR_OTHER_CMD
+
+
+# ===================================================================
+# Config path resolution (user vs managed)
+# ===================================================================
+
+
+class TestConfigPath:
+    def test_claude_user_default(self):
+        assert _config_path("claude") == CLAUDE_SETTINGS_PATH
+
+    def test_cursor_user_default(self):
+        assert _config_path("cursor") == CURSOR_HOOKS_PATH
+
+    def test_claude_managed(self):
+        assert _config_path("claude", managed=True) == CLAUDE_MANAGED_SETTINGS_PATH
+
+    def test_cursor_managed(self):
+        assert _config_path("cursor", managed=True) == CURSOR_MANAGED_HOOKS_PATH
+
+    def test_file_override_takes_precedence_over_managed(self):
+        override = "/custom/path/settings.json"
+        assert _config_path("claude", override=override, managed=True) == Path(override)
+
+    def test_file_override_takes_precedence_over_user(self):
+        override = "/custom/path/settings.json"
+        assert _config_path("claude", override=override) == Path(override)
+
+
+class TestManagedPathConstants:
+    def test_claude_managed_path_is_absolute(self):
+        assert CLAUDE_MANAGED_SETTINGS_PATH.is_absolute()
+
+    def test_cursor_managed_path_is_absolute(self):
+        assert CURSOR_MANAGED_HOOKS_PATH.is_absolute()
+
+    def test_claude_managed_filename(self):
+        assert CLAUDE_MANAGED_SETTINGS_PATH.name == "managed-settings.json"
+
+    def test_cursor_managed_filename(self):
+        assert CURSOR_MANAGED_HOOKS_PATH.name == "hooks.json"
+
+    @pytest.mark.skipif(sys.platform != "darwin", reason="macOS-specific paths")
+    def test_macos_claude_managed_path(self):
+        assert str(CLAUDE_MANAGED_SETTINGS_PATH) == "/Library/Application Support/ClaudeCode/managed-settings.json"
+
+    @pytest.mark.skipif(sys.platform != "darwin", reason="macOS-specific paths")
+    def test_macos_cursor_managed_path(self):
+        assert str(CURSOR_MANAGED_HOOKS_PATH) == "/Library/Application Support/Cursor/hooks.json"
+
+    @pytest.mark.skipif(sys.platform != "linux", reason="Linux-specific paths")
+    def test_linux_claude_managed_path(self):
+        assert str(CLAUDE_MANAGED_SETTINGS_PATH) == "/etc/claude-code/managed-settings.json"
+
+    @pytest.mark.skipif(sys.platform != "linux", reason="Linux-specific paths")
+    def test_linux_cursor_managed_path(self):
+        assert str(CURSOR_MANAGED_HOOKS_PATH) == "/etc/cursor/hooks.json"
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific paths")
+    def test_windows_claude_managed_path(self):
+        assert "ClaudeCode" in str(CLAUDE_MANAGED_SETTINGS_PATH)
+        assert "managed-settings.json" in str(CLAUDE_MANAGED_SETTINGS_PATH)
+
+    @pytest.mark.skipif(sys.platform != "win32", reason="Windows-specific paths")
+    def test_windows_cursor_managed_path(self):
+        assert "Cursor" in str(CURSOR_MANAGED_HOOKS_PATH)
+        assert "hooks.json" in str(CURSOR_MANAGED_HOOKS_PATH)
+
+
+class TestManagedInstallClaude:
+    """Verify hooks can be installed/detected/uninstalled at a managed path."""
+
+    def test_install_to_managed_path(self, tmp_path):
+        path = tmp_path / "managed-settings.json"
+        _install_claude(AGENT_SCAN_CMD, path)
+
+        data = json.loads(path.read_text())
+        hooks = data["hooks"]
+        assert set(hooks.keys()) == set(CLAUDE_HOOK_EVENTS)
+
+    def test_detect_at_managed_path(self, tmp_path):
+        path = tmp_path / "managed-settings.json"
+        _install_claude(AGENT_SCAN_CMD, path)
+
+        info = _detect_claude_install(path)
+        assert info is not None
+        assert info["auth_value"] == "pk-1234"
+
+    def test_uninstall_from_managed_path(self, tmp_path):
+        path = tmp_path / "managed-settings.json"
+        _install_claude(AGENT_SCAN_CMD, path)
+        _uninstall_claude(path)
+
+        data = json.loads(path.read_text())
+        assert "hooks" not in data
+
+
+class TestManagedInstallCursor:
+    """Verify hooks can be installed/detected/uninstalled at a managed path."""
+
+    def test_install_to_managed_path(self, tmp_path):
+        path = tmp_path / "hooks.json"
+        _install_cursor(CURSOR_AGENT_SCAN_CMD, path)
+
+        data = json.loads(path.read_text())
+        hooks = data["hooks"]
+        assert set(hooks.keys()) == set(CURSOR_HOOK_EVENTS)
+
+    def test_detect_at_managed_path(self, tmp_path):
+        path = tmp_path / "hooks.json"
+        _install_cursor(CURSOR_AGENT_SCAN_CMD, path)
+
+        info = _detect_cursor_install(path)
+        assert info is not None
+        assert info["auth_value"] == "pk-1234"
+
+    def test_uninstall_from_managed_path(self, tmp_path):
+        path = tmp_path / "hooks.json"
+        _install_cursor(CURSOR_AGENT_SCAN_CMD, path)
+        _uninstall_cursor(path)
+
+        data = json.loads(path.read_text())
+        assert data["hooks"] == {}
 
 
 # ===================================================================

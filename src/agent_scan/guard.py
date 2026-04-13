@@ -28,6 +28,17 @@ DETECTION_MARKER = "snyk-agent-guard"
 CLAUDE_SETTINGS_PATH = Path.home() / ".claude" / "settings.json"
 CURSOR_HOOKS_PATH = Path.home() / ".cursor" / "hooks.json"
 
+# Managed (MDM / admin-deployed) config paths — OS-specific
+if sys.platform == "darwin":
+    CLAUDE_MANAGED_SETTINGS_PATH = Path("/Library/Application Support/ClaudeCode/managed-settings.json")
+    CURSOR_MANAGED_HOOKS_PATH = Path("/Library/Application Support/Cursor/hooks.json")
+elif sys.platform == "win32":
+    CLAUDE_MANAGED_SETTINGS_PATH = Path("C:/Program Files/ClaudeCode/managed-settings.json")
+    CURSOR_MANAGED_HOOKS_PATH = Path("C:/ProgramData/Cursor/hooks.json")
+else:  # Linux and others
+    CLAUDE_MANAGED_SETTINGS_PATH = Path("/etc/claude-code/managed-settings.json")
+    CURSOR_MANAGED_HOOKS_PATH = Path("/etc/cursor/hooks.json")
+
 CLAUDE_HOOK_EVENTS = [
     "PreToolUse",
     "PostToolUse",
@@ -105,13 +116,15 @@ def _run_install(args) -> None:
     push_key = os.environ.get("PUSH_KEY", "")
     headless = bool(push_key)
     tenant_id: str = getattr(args, "tenant_id", None) or ""
+    managed: bool = getattr(args, "managed", False)
 
     label = _client_label(client)
+    scope = "managed" if managed else "user"
     snyk_token = ""
 
     if not headless:
         # Interactive flow — mint a push key
-        rich.print(f"Installing [bold magenta]Agent Guard[/bold magenta] hooks for [bold]{label}[/bold]")
+        rich.print(f"Installing [bold magenta]Agent Guard[/bold magenta] {scope} hooks for [bold]{label}[/bold]")
         rich.print()
 
         snyk_token = os.environ.get("SNYK_TOKEN", "")
@@ -146,7 +159,7 @@ def _run_install(args) -> None:
 
     hook_client = "claude-code" if client == "claude" else "cursor"
     minted = not headless  # True if we minted the key in this run
-    config_path = _config_path(client, getattr(args, "file", None))
+    config_path = _config_path(client, getattr(args, "file", None), managed=managed)
     # Copy hook script first so we can use it for the test event
     dest_path, script_existed, script_updated = _copy_hook_script(client, config_path)
 
@@ -177,9 +190,9 @@ def _run_install(args) -> None:
         config_changed = _install_cursor(command, config_path)
 
     if script_updated or config_changed or minted:
-        rich.print(f"[green]\u2713[/green]  Hooks installed for [bold]{label}[/bold]")
+        rich.print(f"[green]\u2713[/green]  {scope.title()} hooks installed for [bold]{label}[/bold]")
     else:
-        rich.print(f"[green]\u2713[/green]  {label} hook integration up to date")
+        rich.print(f"[green]\u2713[/green]  {label} {scope} hook integration up to date")
     rich.print(f"   Config:     [dim]{config_path}[/dim]")
     rich.print(f"   Script:     [dim]{dest_path}[/dim]")
     rich.print(f"   Remote URL: [dim]{url}[/dim]")
@@ -246,10 +259,12 @@ def _install_cursor(command: str, path: Path) -> bool:
 
 def _run_uninstall(args) -> None:
     client: str = args.client
+    managed: bool = getattr(args, "managed", False)
     label = _client_label(client)
-    config_path = _config_path(client, getattr(args, "file", None))
+    scope = "managed" if managed else "user"
+    config_path = _config_path(client, getattr(args, "file", None), managed=managed)
 
-    rich.print(f"Removing [bold magenta]Agent Guard[/bold magenta] hooks from [bold]{label}[/bold]")
+    rich.print(f"Removing [bold magenta]Agent Guard[/bold magenta] {scope} hooks from [bold]{label}[/bold]")
     rich.print("[dim]Other hooks in the file will be preserved.[/dim]")
     rich.print()
 
@@ -346,15 +361,28 @@ def _uninstall_cursor(path: Path) -> None:
 
 
 def _run_status() -> None:
+    rich.print("[bold]User-level hooks:[/bold]")
     _print_client_status("Claude Code", CLAUDE_SETTINGS_PATH, _detect_claude_install())
     rich.print()
     _print_client_status("Cursor", CURSOR_HOOKS_PATH, _detect_cursor_install())
     rich.print()
-    rich.print("[dim]# interactive flow[/dim]")
+
+    rich.print("[bold]Managed hooks:[/bold]")
+    _print_client_status(
+        "Claude Code", CLAUDE_MANAGED_SETTINGS_PATH, _detect_claude_install(CLAUDE_MANAGED_SETTINGS_PATH)
+    )
+    rich.print()
+    _print_client_status("Cursor", CURSOR_MANAGED_HOOKS_PATH, _detect_cursor_install(CURSOR_MANAGED_HOOKS_PATH))
+    rich.print()
+
+    rich.print("[dim]# interactive flow (user-level)[/dim]")
     rich.print("[dim]snyk-agent-scan guard install <client>[/dim]")
     rich.print()
+    rich.print("[dim]# managed flow[/dim]")
+    rich.print("[dim]snyk-agent-scan guard install <client> --managed[/dim]")
+    rich.print()
     rich.print("[dim]# headless flow (MDM)[/dim]")
-    rich.print("[dim]PUSH_KEY=<YOUR_PUSH_KEY> snyk-agent-scan guard install <client>[/dim]")
+    rich.print("[dim]PUSH_KEY=<YOUR_PUSH_KEY> snyk-agent-scan guard install <client> [--managed][/dim]")
     rich.print()
     rich.print(
         "[dim]If hooks are already installed and up to date, install commands are no-ops. To uninstall use 'snyk-agent-scan guard uninstall <client>'[/dim]"
@@ -582,10 +610,12 @@ def _client_label(client: str) -> str:
     return "Claude Code" if client == "claude" else "Cursor"
 
 
-def _config_path(client: str, override: str | None = None) -> Path:
+def _config_path(client: str, override: str | None = None, managed: bool = False) -> Path:
     """Resolve the config file path for a client, with optional override."""
     if override:
         return Path(override)
+    if managed:
+        return CLAUDE_MANAGED_SETTINGS_PATH if client == "claude" else CURSOR_MANAGED_HOOKS_PATH
     return CLAUDE_SETTINGS_PATH if client == "claude" else CURSOR_HOOKS_PATH
 
 
