@@ -2,6 +2,7 @@ import asyncio
 import getpass
 import logging
 import os
+import platform
 
 import aiohttp
 import rich
@@ -19,11 +20,10 @@ def get_hostname() -> str:
     ci_hostname = os.getenv("AGENT_SCAN_CI_HOSTNAME")
     if get_environment() == "ci" and ci_hostname:
         return ci_hostname
-    else:
-        try:
-            return os.uname().nodename
-        except Exception:
-            return "unknown"
+    try:
+        return platform.node() or "unknown"
+    except Exception:
+        return "unknown"
 
 
 def get_username() -> str:
