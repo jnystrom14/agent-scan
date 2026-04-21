@@ -14,7 +14,13 @@ from urllib.parse import urlparse
 
 import rich
 
-from agent_scan.pushkeys import mint_push_key, revoke_push_key
+from agent_scan.pushkeys import (
+    GuardEnabledAccessDeniedError,
+    _is_localhost,
+    fetch_guard_enabled,
+    mint_push_key,
+    revoke_push_key,
+)
 
 IS_WINDOWS = sys.platform == "win32"
 
@@ -111,12 +117,83 @@ def _get_machine_description(client: str) -> str:
     return f"agent-guard ({hostname}) {label}"
 
 
+def _ensure_guard_enabled_for_tenant(url: str, tenant_id: str, snyk_token: str) -> None:
+    """Exit with a clear message if agent-monitor reports Agent Guard is off for the tenant."""
+    if not tenant_id:
+        return
+    if not _is_localhost(url) and not (snyk_token or "").strip():
+        rich.print(
+            "[bold red]Error:[/bold red] SNYK_TOKEN is required to verify that Agent Guard is enabled "
+            "for your tenant. Set SNYK_TOKEN and retry, or omit TENANT_ID / --tenant-id if you are only "
+            "testing against a local server."
+        )
+        sys.exit(1)
+    rich.print("[dim]Checking whether Agent Guard is enabled for your tenant...[/dim]")
+    try:
+        enabled = fetch_guard_enabled(url, tenant_id, snyk_token)
+    except GuardEnabledAccessDeniedError:
+        rich.print()
+        rich.print(
+            "[bold red]Access denied:[/bold red] your Snyk account is not eligible to use Agent Guard "
+            f"status for tenant [bold]{tenant_id}[/bold]."
+        )
+        rich.print()
+        rich.print(
+            "The API returned [bold]HTTP 403[/bold] for "
+            f"[dim]GET /hidden/tenants/{tenant_id}/guard-enabled[/dim]. That usually means this token "
+            "is not authorized for that tenant (wrong tenant ID), the tenant ID does not exist in your "
+            "organization, or your user does not have the entitlements required for this API."
+        )
+        rich.print()
+        rich.print(
+            "Verify the tenant ID in the Snyk UI ([link=https://app.snyk.io]app.snyk.io[/link]), use a "
+            "token from an account that belongs to that tenant, and confirm you selected the right "
+            "[bold]--url[/bold] for your environment."
+        )
+        rich.print()
+        sys.exit(1)
+    except RuntimeError as e:
+        rich.print(f"[bold red]Error:[/bold red] Could not reach the Agent Guard status endpoint: {e}")
+        rich.print(
+            "[yellow]Ensure --url points to the Snyk API for your environment (for example "
+            "[bold]https://api.snyk.io[/bold] for production, or the matching dev API host), that "
+            "your token has access to this tenant, and that network access is allowed.[/yellow]"
+        )
+        sys.exit(1)
+    if not enabled:
+        rich.print()
+        rich.print(
+            "[bold red]Agent Guard is not enabled for this Snyk tenant.[/bold red]", highlight=False
+        )
+        rich.print()
+        rich.print(
+            "The Agent Guard (Observe) feature is controlled per tenant. Your organization has not "
+            "turned it on for tenant "
+            f"[bold]{tenant_id}[/bold], or your user does not have access to an org where it is enabled."
+        )
+        rich.print()
+        rich.print(
+            "What you can do next: ask your Snyk admin to enable the [bold]Observe[/bold] / Agent Guard "
+            "capability for this tenant (Evo Agent Guard / observe-preview), confirm you are using the "
+            "correct tenant ID from [link=https://app.snyk.io]app.snyk.io[/link], and try again from a "
+            "network that can reach your Snyk API."
+        )
+        rich.print(
+            f"[dim]Technical detail: GET /hidden/tenants/{tenant_id}/guard-enabled returned "
+            f"[/dim][bold]\"enabled\": false[/bold][dim].[/dim]"
+        )
+        rich.print()
+        sys.exit(1)
+
+
 def _run_install(args) -> None:
     client: str = args.client
     url: str = args.url
     push_key = os.environ.get("PUSH_KEY", "")
     headless = bool(push_key)
-    tenant_id: str = getattr(args, "tenant_id", None) or ""
+    tenant_id: str = (getattr(args, "tenant_id", None) or "").strip()
+    if not tenant_id:
+        tenant_id = (os.environ.get("TENANT_ID", "") or "").strip()
     managed: bool = getattr(args, "managed", False)
 
     label = _client_label(client)
@@ -137,13 +214,13 @@ def _run_install(args) -> None:
             sys.exit(1)
 
         if not tenant_id:
-            tenant_id = os.environ.get("TENANT_ID", "")
-        if not tenant_id:
             rich.print("Enter your Snyk Tenant ID ( from the URL at https://app.snyk.io ):")
             tenant_id = input().strip()
         if not tenant_id:
             rich.print("[bold red]Error:[/bold red] Tenant ID is required to mint a push key.")
             sys.exit(1)
+
+        _ensure_guard_enabled_for_tenant(url, tenant_id, snyk_token)
 
         # Preflight: verify target directory is writable before minting
         config_path = _config_path(client, getattr(args, "file", None), managed=managed)
@@ -161,6 +238,10 @@ def _run_install(args) -> None:
                 )
             sys.exit(1)
         rich.print(f"[green]\u2713[/green]  Push key minted  [yellow]{_mask_key(push_key)}[/yellow]")
+
+    token_for_guard = (os.environ.get("SNYK_TOKEN", "") or "").strip() if headless else snyk_token
+    if headless:
+        _ensure_guard_enabled_for_tenant(url, tenant_id, token_for_guard)
 
     hook_client = "claude-code" if client == "claude" else "cursor"
     minted = not headless  # True if we minted the key in this run

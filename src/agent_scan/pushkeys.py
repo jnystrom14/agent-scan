@@ -10,11 +10,22 @@ from urllib.request import Request, urlopen
 PLATFORM_API_VERSION = "2025-08-28"
 
 
+class GuardEnabledAccessDeniedError(Exception):
+    """GET /hidden/tenants/{id}/guard-enabled returned HTTP 403 (forbidden for this principal)."""
+
+
 def _build_push_key_url(base_url: str, tenant_id: str) -> str:
     base = base_url.rstrip("/")
     if "/hidden" not in base:
         base += "/hidden"
     return f"{base}/tenants/{tenant_id}/mcp-scan/push-key?version={PLATFORM_API_VERSION}"
+
+
+def _build_guard_enabled_url(base_url: str, tenant_id: str) -> str:
+    base = base_url.rstrip("/")
+    if "/hidden" not in base:
+        base += "/hidden"
+    return f"{base}/tenants/{tenant_id}/guard-enabled"
 
 
 def _is_localhost(url: str) -> bool:
@@ -55,6 +66,35 @@ def mint_push_key(
     if not client_id:
         raise RuntimeError(f"Unexpected push key response: {data}")
     return client_id
+
+
+def fetch_guard_enabled(base_url: str, tenant_id: str, snyk_token: str) -> bool:
+    """Query agent-monitor: whether Agent Guard (observe-preview) is enabled for the tenant.
+
+    GET /hidden/tenants/{tenant_id}/guard-enabled — same base URL as push-key and hooks
+    (environment-specific, e.g. https://api.snyk.io).
+
+    Returns True if ``enabled`` is true in the JSON body; False if explicitly disabled.
+    Raises RuntimeError on HTTP errors or unexpected response shape.
+    """
+    url = _build_guard_enabled_url(base_url, tenant_id)
+    req = Request(url, method="GET")
+    if snyk_token and not _is_localhost(base_url):
+        req.add_header("Authorization", f"token {snyk_token}")
+    try:
+        with urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read())
+    except HTTPError as e:
+        body_text = e.read().decode(errors="replace")
+        if e.code == 403:
+            raise GuardEnabledAccessDeniedError(body_text) from e
+        raise RuntimeError(f"Guard enabled check failed: HTTP {e.code} — {body_text}") from e
+    except (TimeoutError, URLError) as e:
+        raise RuntimeError(f"Guard enabled check failed: {e}") from e
+
+    if not isinstance(data, dict) or "enabled" not in data:
+        raise RuntimeError(f"Unexpected guard-enabled response: {data}")
+    return bool(data["enabled"])
 
 
 def revoke_push_key(
