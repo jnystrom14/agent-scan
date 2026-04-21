@@ -134,21 +134,8 @@ def _ensure_guard_enabled_for_tenant(url: str, tenant_id: str, snyk_token: str) 
     except GuardEnabledAccessDeniedError:
         rich.print()
         rich.print(
-            "[bold red]Access denied:[/bold red] your Snyk account is not eligible to use Agent Guard "
-            f"status for tenant [bold]{tenant_id}[/bold]."
-        )
-        rich.print()
-        rich.print(
-            "The API returned [bold]HTTP 403[/bold] for "
-            f"[dim]GET /hidden/tenants/{tenant_id}/guard-enabled[/dim]. That usually means this token "
-            "is not authorized for that tenant (wrong tenant ID), the tenant ID does not exist in your "
-            "organization, or your user does not have the entitlements required for this API."
-        )
-        rich.print()
-        rich.print(
-            "Verify the tenant ID in the Snyk UI ([link=https://app.snyk.io]app.snyk.io[/link]), use a "
-            "token from an account that belongs to that tenant, and confirm you selected the right "
-            "[bold]--url[/bold] for your environment."
+            "[bold red]Access denied:[/bold red] your Snyk account is not eligible to use the "
+            f"tenant [bold]{tenant_id}[/bold]."
         )
         rich.print()
         sys.exit(1)
@@ -168,17 +155,6 @@ def _ensure_guard_enabled_for_tenant(url: str, tenant_id: str, snyk_token: str) 
             "The Agent Guard (Observe) feature is controlled per tenant. Your organization has not "
             "turned it on for tenant "
             f"[bold]{tenant_id}[/bold], or your user does not have access to an org where it is enabled."
-        )
-        rich.print()
-        rich.print(
-            "What you can do next: ask your Snyk admin to enable the [bold]Observe[/bold] / Agent Guard "
-            "capability for this tenant (Evo Agent Guard / observe-preview), confirm you are using the "
-            "correct tenant ID from [link=https://app.snyk.io]app.snyk.io[/link], and try again from a "
-            "network that can reach your Snyk API."
-        )
-        rich.print(
-            f"[dim]Technical detail: GET /hidden/tenants/{tenant_id}/guard-enabled returned "
-            f'[/dim][bold]"enabled": false[/bold][dim].[/dim]'
         )
         rich.print()
         sys.exit(1)
