@@ -150,11 +150,7 @@ def _ensure_guard_enabled_for_tenant(url: str, tenant_id: str, snyk_token: str) 
         rich.print()
         rich.print("[bold red]Agent Guard is not enabled for this Snyk tenant.[/bold red]")
         rich.print()
-        rich.print(
-            "The Agent Guard (Observe) feature is controlled per tenant. Your organization has not "
-            "turned it on for tenant "
-            f"[bold]{tenant_id}[/bold], or your user does not have access to an org where it is enabled."
-        )
+        rich.print("Please reach out to your Snyk administrators if you believe this is a mistake.")
         rich.print()
         sys.exit(1)
 
