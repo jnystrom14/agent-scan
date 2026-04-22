@@ -141,7 +141,7 @@ def _ensure_guard_enabled_for_tenant(url: str, tenant_id: str, snyk_token: str) 
         rich.print(f"[bold red]Error:[/bold red] Could not verify Agent Guard status for your tenant: {e}")
         rich.print(
             "[yellow]Ensure --url points to the Snyk API for your environment (for example "
-            "[bold]https://api.snyk.io[/bold] for production, or the matching dev API host), that "
+            "[bold]https://api.snyk.io[/bold] for Snyk US 1), that "
             "your token has access to this tenant, and that network access is allowed.[/yellow]"
         )
         sys.exit(1)
