@@ -31,6 +31,19 @@ ErrorCategory = Literal[
     "skill_scan_error",  # Could not scan skill
 ]
 
+# Mapping from failure categories to codes
+# These codes are different from the ones from analysis findings like E001, E002, etc
+FAILURE_CATEGORY_TO_CODE: dict[ErrorCategory | None, str] = {
+    "server_startup": "X001",
+    "skill_scan_error": "X002",
+    "file_not_found": "X003",
+    "unknown_config": "X004",
+    "parse_error": "X005",
+    "server_http_error": "X006",
+    "analysis_error": "X007",
+    None: "X008",
+}
+
 logger = logging.getLogger(__name__)
 
 Entity: TypeAlias = Prompt | Resource | Tool | ResourceTemplate | Completion

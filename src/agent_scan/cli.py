@@ -17,7 +17,13 @@ import psutil
 import rich
 from rich.logging import RichHandler
 
-from agent_scan.models import ControlServer, ScanPathResult, TokenAndClientInfo, TokenAndClientInfoList
+from agent_scan.models import (
+    FAILURE_CATEGORY_TO_CODE,
+    ControlServer,
+    ScanPathResult,
+    TokenAndClientInfo,
+    TokenAndClientInfoList,
+)
 from agent_scan.pipelines import AnalyzeArgs, InspectArgs, PushArgs, inspect_analyze_push_pipeline, inspect_pipeline
 from agent_scan.printer import print_scan_result
 from agent_scan.upload import get_hostname
@@ -207,6 +213,12 @@ def add_common_arguments(parser):
         action="store_true",
         default=False,
         help="Exit with a non-zero code when there are analysis findings or runtime failures",
+    )
+    parser.add_argument(
+        "--ignore-issues-codes",
+        type=str,
+        default=None,
+        help="Comma-separated list of issue codes to ignore (e.g. W001,W015)",
     )
 
 
@@ -613,20 +625,78 @@ async def run_scan(args, mode: Literal["scan", "inspect"] = "scan") -> list[Scan
         raise ValueError(f"Unknown mode: {mode}, expected 'scan' or 'inspect'")
 
 
+def _parse_ignore_codes(args, ci_mode: bool) -> set[str]:
+    """Parse --ignore-issues-codes and validate it is only used with --ci."""
+    ignore_codes_raw = getattr(args, "ignore_issues_codes", None)
+    ignore_codes: set[str] = (
+        {c.strip() for c in ignore_codes_raw.split(",") if c.strip()} if ignore_codes_raw else set()
+    )
+    if ignore_codes and not ci_mode:
+        rich.print(
+            "[bold red]Error: --ignore-issues-codes can only be used with --ci.[/bold red]",
+            file=sys.stderr,
+        )
+        sys.exit(2)
+    return ignore_codes
+
+
+def _collect_failure_codes(result: list[ScanPathResult]) -> set[str]:
+    """Collect X00x codes from ScanError failures on paths and servers."""
+    codes: set[str] = set()
+    for r in result:
+        if r.error and r.error.is_failure:
+            codes.add(FAILURE_CATEGORY_TO_CODE.get(r.error.category, FAILURE_CATEGORY_TO_CODE[None]))
+        for s in r.servers or []:
+            if s.error and s.error.is_failure:
+                codes.add(FAILURE_CATEGORY_TO_CODE.get(s.error.category, FAILURE_CATEGORY_TO_CODE[None]))
+    return codes
+
+
+def _apply_ignore_codes(result: list[ScanPathResult], ignore_codes: set[str]) -> None:
+    """Remove issues whose code is in the ignore set from each scan result."""
+    for scan_result in result:
+        scan_result.issues = [i for i in scan_result.issues if i.code not in ignore_codes]
+
+
+def _handle_ci_exit(result: list[ScanPathResult], json_output: bool, ignore_codes: set[str]) -> None:
+    """In CI mode, exit with code 1 if any issues or unignored failures remain."""
+    has_issues = any(scan_result.issues for scan_result in result)
+    failure_codes = _collect_failure_codes(result) - ignore_codes
+    if not has_issues and not failure_codes:
+        return
+
+    if not json_output:
+        issue_codes = {issue.code for scan_result in result for issue in scan_result.issues if issue.code}
+        all_codes = sorted(issue_codes | failure_codes)
+        codes_part = ", ".join(all_codes) if all_codes else "none"
+        rich.print(
+            f"[bold red]CI (--ci): exiting with code 1 (issue codes: {codes_part}).[/bold red]",
+            file=sys.stderr,
+        )
+    sys.exit(1)
+
+
 async def print_scan_inspect(mode="scan", args=None):
     json_output: bool = hasattr(args, "json") and args.json
     print_errors: bool = hasattr(args, "print_errors") and args.print_errors
     full_description: bool = hasattr(args, "print_full_descriptions") and args.print_full_descriptions
     verbose: bool = hasattr(args, "verbose") and args.verbose
     ci_mode: bool = hasattr(args, "ci") and args.ci
+    ignore_codes = _parse_ignore_codes(args, ci_mode)
 
     if json_output:
         with suppress_stdout():
             result = await run_scan(args, mode=mode)
-            result_dict = {r.path: r.model_dump(mode="json") for r in result}
-        print(json.dumps(result_dict, indent=2))
     else:
         result = await run_scan(args, mode=mode)
+
+    if ci_mode and ignore_codes:
+        _apply_ignore_codes(result, ignore_codes)
+
+    if json_output:
+        result_dict = {r.path: r.model_dump(mode="json") for r in result}
+        print(json.dumps(result_dict, indent=2))
+    else:
         print_scan_result(
             result,
             print_errors,
@@ -636,16 +706,8 @@ async def print_scan_inspect(mode="scan", args=None):
             args=args,
         )
 
-    # In CI mode, exit with a non-zero code if any scan path has issues
-    if ci_mode and any(scan_result.issues for scan_result in result):
-        if not json_output:
-            codes = sorted({issue.code for scan_result in result for issue in scan_result.issues if issue.code})
-            codes_part = ", ".join(codes) if codes else "none"
-            rich.print(
-                f"[bold red]CI (--ci): exiting with code 1 (issue codes: {codes_part}).[/bold red]",
-                file=sys.stderr,
-            )
-        sys.exit(1)
+    if ci_mode:
+        _handle_ci_exit(result, json_output, ignore_codes)
 
 
 if __name__ == "__main__":
