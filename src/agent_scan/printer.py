@@ -8,6 +8,7 @@ from rich.traceback import Traceback as rTraceback
 from rich.tree import Tree
 
 from agent_scan.models import (
+    FAILURE_CATEGORY_TO_CODE,
     Entity,
     Issue,
     ScanError,
@@ -44,18 +45,7 @@ ICON_MAP = {
     "inspect_mode": "  ",
 }
 
-# Mapping from failure categories to codes
-# These codes are different the ones from analysis findings like E001, E002, etc
-FAILURE_CATEGORY_TO_CODE_MAPPING = {
-    "server_startup": "X001",
-    "skill_scan_error": "X002",
-    "file_not_found": "X003",
-    "unknown_config": "X004",
-    "parse_error": "X005",
-    "server_http_error": "X006",
-    "analysis_error": "X007",
-    None: "X008",
-}
+FAILURE_CATEGORY_TO_CODE_MAPPING = FAILURE_CATEGORY_TO_CODE
 
 
 def format_exception(e: Exception | str | None) -> tuple[str, rTraceback | None]:

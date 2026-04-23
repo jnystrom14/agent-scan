@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from agent_scan.cli import MissingIdentifierError, parse_control_servers
-from agent_scan.models import ControlServer, Issue, ScanPathResult
+from agent_scan.models import ControlServer, Issue, RemoteServer, ScanError, ScanPathResult, ServerScanResult
 
 
 class TestControlServerParsing:
@@ -452,6 +452,66 @@ class TestCIMode:
             )
             await print_scan_inspect(mode="scan", args=args)
 
+    @pytest.mark.asyncio
+    async def test_ci_exits_1_on_path_level_failure(self):
+        """CI mode exits 1 when a ScanPathResult has an is_failure error, even with no issues."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[],
+            error=ScanError(message="parse failed", is_failure=True, category="parse_error"),
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(json=True, print_errors=False, print_full_descriptions=False, verbose=False, ci=True)
+            with pytest.raises(SystemExit) as exc_info:
+                await print_scan_inspect(mode="scan", args=args)
+            assert exc_info.value.code == 1
+
+    @pytest.mark.asyncio
+    async def test_ci_exits_1_on_server_level_failure(self):
+        """CI mode exits 1 when a ServerScanResult has an is_failure error."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[],
+            servers=[
+                ServerScanResult(
+                    server=RemoteServer(url="http://localhost"),
+                    error=ScanError(message="startup failed", is_failure=True, category="server_startup"),
+                ),
+            ],
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(json=True, print_errors=False, print_full_descriptions=False, verbose=False, ci=True)
+            with pytest.raises(SystemExit) as exc_info:
+                await print_scan_inspect(mode="scan", args=args)
+            assert exc_info.value.code == 1
+
+    @pytest.mark.asyncio
+    async def test_ci_no_exit_on_non_failure_error(self):
+        """CI mode does NOT exit when errors have is_failure=False (e.g. file_not_found)."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[],
+            error=ScanError(message="config not found", is_failure=False, category="file_not_found"),
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(json=True, print_errors=False, print_full_descriptions=False, verbose=False, ci=True)
+            await print_scan_inspect(mode="scan", args=args)
+
 
 class TestJSONOutput:
     """Test suite for JSON output functionality."""
@@ -531,3 +591,235 @@ class TestJSONOutput:
 
             parsed = json.loads(output)
             assert isinstance(parsed, dict)
+
+
+class TestIgnoreIssuesCodes:
+    """Tests for --ignore-issues-codes filtering."""
+
+    @pytest.mark.asyncio
+    async def test_ignore_codes_filters_all_issues_ci_no_exit(self):
+        """CI mode with all issues ignored → no SystemExit."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[
+                Issue(code="W001", message="warning 1", reference=None),
+                Issue(code="W015", message="warning 15", reference=None),
+            ],
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(
+                json=True,
+                print_errors=False,
+                print_full_descriptions=False,
+                verbose=False,
+                ci=True,
+                ignore_issues_codes="W001,W015",
+            )
+            # Should NOT raise SystemExit because all issues are ignored
+            await print_scan_inspect(mode="scan", args=args)
+
+    @pytest.mark.asyncio
+    async def test_ignore_codes_reflected_in_json_output(self):
+        """CI mode with ignored codes: JSON output should not contain filtered issues."""
+        import io
+        import json
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[
+                Issue(code="W001", message="warning 1", reference=None),
+                Issue(code="E001", message="error 1", reference=None),
+            ],
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(
+                json=True,
+                print_errors=False,
+                print_full_descriptions=False,
+                verbose=False,
+                ci=True,
+                ignore_issues_codes="W001",
+            )
+
+            captured_output = io.StringIO()
+            original_stdout = sys.stdout
+            try:
+                sys.stdout = captured_output
+                with pytest.raises(SystemExit):
+                    await print_scan_inspect(mode="scan", args=args)
+            finally:
+                sys.stdout = original_stdout
+
+            parsed_output = json.loads(captured_output.getvalue())
+            issues = parsed_output["/test/path"]["issues"]
+            codes = [i["code"] for i in issues]
+            assert "W001" not in codes
+            assert "E001" in codes
+
+    @pytest.mark.asyncio
+    async def test_ignore_codes_partial_filter_still_exits(self):
+        """CI mode, some codes ignored, others remain → SystemExit(1)."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[
+                Issue(code="W001", message="warning 1", reference=None),
+                Issue(code="E001", message="error 1", reference=None),
+            ],
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(
+                json=True,
+                print_errors=False,
+                print_full_descriptions=False,
+                verbose=False,
+                ci=True,
+                ignore_issues_codes="W001",
+            )
+            with pytest.raises(SystemExit) as exc_info:
+                await print_scan_inspect(mode="scan", args=args)
+            assert exc_info.value.code == 1
+
+    @pytest.mark.asyncio
+    async def test_ignore_codes_without_ci_exits_with_error(self):
+        """Using --ignore-issues-codes without --ci exits with code 2."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        args = Namespace(
+            json=True,
+            print_errors=False,
+            print_full_descriptions=False,
+            verbose=False,
+            ci=False,
+            ignore_issues_codes="W001",
+        )
+        with pytest.raises(SystemExit) as exc_info:
+            await print_scan_inspect(mode="scan", args=args)
+        assert exc_info.value.code == 2
+
+    @pytest.mark.asyncio
+    async def test_ignore_codes_not_set_keeps_all_issues(self):
+        """ignore_issues_codes=None → all issues preserved, CI exits 1."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[Issue(code="W001", message="warning 1", reference=None)],
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(
+                json=True,
+                print_errors=False,
+                print_full_descriptions=False,
+                verbose=False,
+                ci=True,
+                ignore_issues_codes=None,
+            )
+            with pytest.raises(SystemExit) as exc_info:
+                await print_scan_inspect(mode="scan", args=args)
+            assert exc_info.value.code == 1
+
+    @pytest.mark.asyncio
+    async def test_ignore_codes_empty_string_keeps_all_issues(self):
+        """ignore_issues_codes="" → all issues preserved, CI exits 1."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[Issue(code="W001", message="warning 1", reference=None)],
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(
+                json=True,
+                print_errors=False,
+                print_full_descriptions=False,
+                verbose=False,
+                ci=True,
+                ignore_issues_codes="",
+            )
+            with pytest.raises(SystemExit) as exc_info:
+                await print_scan_inspect(mode="scan", args=args)
+            assert exc_info.value.code == 1
+
+    @pytest.mark.asyncio
+    async def test_ignore_codes_can_suppress_failure_code(self):
+        """Ignoring a failure code (e.g. X001) prevents CI exit when that is the only failure."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[],
+            servers=[
+                ServerScanResult(
+                    server=RemoteServer(url="http://localhost"),
+                    error=ScanError(message="startup failed", is_failure=True, category="server_startup"),
+                ),
+            ],
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(
+                json=True,
+                print_errors=False,
+                print_full_descriptions=False,
+                verbose=False,
+                ci=True,
+                ignore_issues_codes="X001",
+            )
+            # X001 (server_startup) is ignored → clean exit
+            await print_scan_inspect(mode="scan", args=args)
+
+    @pytest.mark.asyncio
+    async def test_ignore_codes_does_not_suppress_other_failure(self):
+        """Ignoring one failure code still exits 1 if a different failure code remains."""
+        from argparse import Namespace
+
+        from agent_scan.cli import print_scan_inspect
+
+        mock_result = ScanPathResult(
+            path="/test/path",
+            issues=[],
+            error=ScanError(message="parse failed", is_failure=True, category="parse_error"),
+            servers=[
+                ServerScanResult(
+                    server=RemoteServer(url="http://localhost"),
+                    error=ScanError(message="startup failed", is_failure=True, category="server_startup"),
+                ),
+            ],
+        )
+
+        with patch("agent_scan.cli.run_scan", new_callable=AsyncMock, return_value=[mock_result]):
+            args = Namespace(
+                json=True,
+                print_errors=False,
+                print_full_descriptions=False,
+                verbose=False,
+                ci=True,
+                ignore_issues_codes="X001",  # ignores server_startup but not parse_error (X005)
+            )
+            with pytest.raises(SystemExit) as exc_info:
+                await print_scan_inspect(mode="scan", args=args)
+            assert exc_info.value.code == 1
