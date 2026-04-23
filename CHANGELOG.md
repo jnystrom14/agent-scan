@@ -73,3 +73,4 @@
 - `0.4.15` Support Windows and x86 builds
 - `0.4.16` Bug fixes and improvements.
 - `0.4.17` WSL support for well known client paths.
+- `0.4.18` Add support for --ignore-issues-codes with --ci.
